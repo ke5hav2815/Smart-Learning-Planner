@@ -1,0 +1,104 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Generic Helpers
+    function isSignedIn() { return request.auth != null; }
+    function isVerified() { return isSignedIn() && request.auth.token.email_verified == true; }
+    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function isAdmin() { return isSignedIn() && request.auth.token.email == 'keshavjhaofficial28@gmail.com'; }
+
+    // Entity Validations
+    function isValidUser(data) {
+      return data.uid is string && data.email is string && 
+             data.uid == request.auth.uid &&
+             data.keys().hasAll(['uid', 'email']) &&
+             (data.get('productivityScore', 0) is number) &&
+             (data.get('streak', 0) is int);
+    }
+
+    function isValidTask(data) {
+      return data.userId == request.auth.uid &&
+             data.title is string && data.title.size() <= 200 &&
+             data.status in ['backlog', 'in-progress', 'completed'] &&
+             data.priority in ['High', 'Medium', 'Low'] &&
+             (data.get('dueDate', '') is string);
+    }
+
+    function isValidSubject(data) {
+      return data.userId == request.auth.uid &&
+             data.name is string && data.name.size() <= 100;
+    }
+
+    function isValidNote(data) {
+      return data.userId == request.auth.uid &&
+             data.title is string && data.title.size() <= 200;
+    }
+
+    function isValidSession(data) {
+      return data.userId == request.auth.uid &&
+             data.duration is int && data.duration > 0;
+    }
+
+    function isValidNotification(data) {
+      return data.userId == request.auth.uid &&
+             data.title is string && data.message is string;
+    }
+
+    // Collection Matches
+    match /users/{userId} {
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin();
+      allow create: if isOwner(userId) && isValidUser(incoming());
+      allow update: if isOwner(userId) && isValidUser(incoming()) && 
+                    incoming().diff(existing()).affectedKeys().hasAny(['displayName', 'photoURL', 'theme', 'productivityScore', 'streak', 'lastActive']);
+      allow delete: if isAdmin();
+    }
+
+    match /tasks/{taskId} {
+      allow get: if isSignedIn() && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidTask(incoming());
+      allow update: if isSignedIn() && existing().userId == request.auth.uid && isValidTask(incoming());
+      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    match /subjects/{subjectId} {
+      allow get: if isSignedIn() && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidSubject(incoming());
+      allow update: if isSignedIn() && existing().userId == request.auth.uid && isValidSubject(incoming());
+      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    match /notes/{noteId} {
+      allow get: if isSignedIn() && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidNote(incoming());
+      allow update: if isSignedIn() && existing().userId == request.auth.uid && isValidNote(incoming());
+      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    match /sessions/{sessionId} {
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidSession(incoming());
+      allow update: if isSignedIn() && existing().userId == request.auth.uid && isValidSession(incoming());
+      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    match /notifications/{notificationId} {
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow get: if isSignedIn() && existing().userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidNotification(incoming());
+      allow update: if isSignedIn() && existing().userId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['read']);
+      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+    }
+  }
+}
